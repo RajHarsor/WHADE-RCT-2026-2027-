@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "whade-rct-2026-2027"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncio>=4.0.0",
+    "fitbit>=0.3.1",
+]
+
+[project.scripts]
+whade-rct-2026-2027 = "whade_rct_2026_2027.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/whade_rct_2026_2027"]
