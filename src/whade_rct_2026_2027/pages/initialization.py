@@ -31,7 +31,7 @@ def initialization_page():
             with ui.row().classes('justify-center mt-5 gap-10 justify-start'):
                 with ui.column().classes('items-right mt-5 gap-1'):
                     ui.label('Choose Variable to Update').classes('text-lg font-bold mb-2 w-100')
-                    variable_select = ui.select(['AWS Access Key ID (aws_access_key_id)', 'AWS Secret Access Key (aws_secret_access_key)']).classes('w-100')
+                    variable_select = ui.select(['AWS Access Key ID (aws_access_key_id)', 'AWS Secret Access Key (aws_secret_access_key)', 'WHADE Fitbit Client ID (whade_fitbit_client_id)', 'WHADE Fitbit Client Secret (whade_fitbit_client_secret)']).classes('w-100')
                 new_value_input = ui.input(label='New Value').classes('w-100 mt-15')
 
                 def on_submit():
@@ -77,7 +77,9 @@ def initialization_page():
                     ui.label('Credential Setup').classes('text-lg font-bold mb-2')
                     aws_access_key = ui.input(label='AWS Access Key ID').classes('w-100')
                     aws_secret_key = ui.input(label='AWS Secret Access Key').classes('w-100')
-  
+                    whade_fitbit_client_id = ui.input(label='WHADE Fitbit Client ID').classes('w-100')
+                    whade_fitbit_client_secret = ui.input(label='WHADE Fitbit Client Secret').classes('w-100')
+
             
             def validate_mandatory_fields():
                 if aws_access_key.value and aws_secret_key.value:
@@ -99,6 +101,9 @@ def initialization_page():
             # Add validation on input change using on_value_change which is safer for inputs
             aws_access_key.on_value_change(lambda e: validate_mandatory_fields())
             aws_secret_key.on_value_change(lambda e: validate_mandatory_fields())
+            whade_fitbit_client_id.on_value_change(lambda e: validate_mandatory_fields())
+            whade_fitbit_client_secret.on_value_change(lambda e: validate_mandatory_fields())
+
 
     top_bar.top_bar('Initialization Page')
     
@@ -114,7 +119,7 @@ def initialization_page():
             with ui.column().classes('mt-0'):
                 ui.label('Current Part 3 Environment Variables:').classes('text-lg font-bold mb-2 w-100 h-auto')
                 for key, value in env_vars.items():
-                    if key in ['aws_access_key_id', 'aws_secret_access_key']:
+                    if key in ['aws_access_key_id', 'aws_secret_access_key', 'whade_fitbit_client_id', 'whade_fitbit_client_secret']:
                         ui.label(f'- {key}: {value}')
         
     update_credential_button.disable()
