@@ -1,6 +1,6 @@
 import time
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 from decimal import Decimal
 import boto3
+import polars
 import logging
 
 logging.basicConfig(filename='whade_rct_api.log', format='%(asctime)s - %(levelname)s - %(message)s', level = logging.INFO)
@@ -27,9 +28,25 @@ class FitbitAuth:
         self.aws_secret_access_key = os.getenv('aws_secret_access_key')
         self.aws_table_name = "Project_WHADE_RCT"
         self.region_name = "us-east-1"
+    
+    def get_credentials_file(self):
+        if not os.path.exists('credentials.json'):
+            Session = boto3.Session(
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                region_name=self.region_name
+            )
+            s3 = Session.client('s3')
+            try:
+                s3.download_file('whade-rct-config', 'credentials.json', 'credentials.json')
+                logging.info("Credentials file downloaded successfully from S3.")
+            except Exception as e:
+                logging.error(f"Error downloading credentials file from S3: {e}")
+                raise e
 
     def generate_auth_link(self):
         try:
+            self.get_credentials_file()
             flow = Flow.from_client_secrets_file(
                 'credentials.json',
                 scopes=SCOPES,
@@ -140,12 +157,27 @@ class FitbitAuth:
             "Authorization": f"Bearer {creds.token}"
         }
 
+    def _refresh_credentials(self, participant_id, creds):
+        if not creds.refresh_token:
+            return creds
+
+        creds.refresh(Request())
+        self._save_tokens_to_dynamodb(participant_id, {
+            'token': creds.token,
+            'refresh_token': creds.refresh_token,
+            'token_uri': creds.token_uri,
+            'client_id': creds.client_id,
+            'client_secret': creds.client_secret,
+            'scopes': creds.scopes,
+            'expiry': Decimal(str(creds.expiry.timestamp())) if creds.expiry else None,
+        })
+        return creds
+
     def aggregate_steps_over_time(self, participant_id, creds, start_date, end_date):
         if isinstance(start_date, str):
-            start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+            start_date = datetime.strptime(start_date, "%Y-%m-%d").date() 
         if isinstance(end_date, str):
-            end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
-            
+            end_date = datetime.strptime(end_date, "%Y-%m-%d").date() + timedelta(days=1)
         url = "https://health.googleapis.com/v4/users/me/dataTypes/steps/dataPoints:dailyRollUp"
         body = {
             "range": {
@@ -170,6 +202,11 @@ class FitbitAuth:
         
         headers = self.get_headers(creds)
         response = requests.post(url, json=body, headers=headers)
+
+        if response.status_code == 401:
+            creds = self._refresh_credentials(participant_id, creds)
+            headers = self.get_headers(creds)
+            response = requests.post(url, json=body, headers=headers)
         
         if not response.ok:
             logging.error(f"Error fetching steps data for participant {participant_id}: {response.text}")
@@ -182,8 +219,11 @@ class FitbitAuth:
             date = f"{st['year']}-{st['month']:02d}-{st['day']:02d}"
             steps = point.get("steps", {}).get("countSum", 0)
             results.append({"date": date, "steps": steps})
+        
+        # convert to df
+        df = polars.DataFrame(results)
 
-        return results
+        return df
     
     def restingHeartRate_over_time(self, participant_id, creds, start_date, end_date):
         if isinstance(start_date, str):
@@ -195,6 +235,11 @@ class FitbitAuth:
         
         headers = self.get_headers(creds)
         response = requests.get(url, headers=headers)
+
+        if response.status_code == 401:
+            creds = self._refresh_credentials(participant_id, creds)
+            headers = self.get_headers(creds)
+            response = requests.get(url, headers=headers)
         
         if not response.ok:
             logging.error(f"Error fetching resting heart rate data for participant {participant_id}: {response.text}")
@@ -217,7 +262,8 @@ class FitbitAuth:
                     "restingHeartRate": resting_heart_rate.get("beatsPerMinute", 0),
                 })
 
-        return results, data
+        df = polars.DataFrame(results)
+        return df, data
 
     def _save_tokens_to_dynamodb(self, participant_id, token_data):
         Session = boto3.Session(

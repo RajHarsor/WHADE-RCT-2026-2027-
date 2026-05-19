@@ -3,6 +3,7 @@ from ..components import top_bar
 from ..functions.fitbit_functions import *
 import re
 import asyncio
+from datetime import date
 
 @ui.page('/add_user')
 def add_user_page():
@@ -23,13 +24,29 @@ def add_user_page():
 def generate_authorization_url(participant_id, phase, week_0_start_date):
     auth = FitbitAuth()
     auth_url, flow = auth.generate_auth_link()
+    
+    def test_steps_pulling(participant_id):
+        try:
+            creds = auth.get_credentials(int(participant_id))
+            if creds is None:
+                ui.notify("No saved tokens found for this participant.", color="red")
+                return
+
+            todays_date = date.today().strftime("%Y-%m-%d")
+            steps = auth.aggregate_steps_over_time(int(participant_id), creds, todays_date, todays_date)
+            steps_total = steps["steps"][0] if len(steps) else 0
+            ui.notify(f"Steps pulled for today: {steps_total}", color="green")
+        except Exception as e:
+            ui.notify(f"Error pulling steps: {e}", color="red")
 
     async def submit_button():
         result = auth.save_tokens(int(participant_id.value), phase.value, week_0_start_date.value, url_input.value, flow)
         if result is None:
             ui.notify("Tokens saved successfully!", color="green")
+            pull_steps_button.enable()
+            submit_tokens_button.disable()
             await asyncio.sleep(2)
-            ui.navigate.to('/')
+            #ui.navigate.to('/')
         else:
             ui.notify(f"Error saving tokens. Error: {result}", color="red")
 
@@ -43,5 +60,10 @@ def generate_authorization_url(participant_id, phase, week_0_start_date):
         ui.markdown("4. Participants will be redirected to a page on the CHASE Lab website. Have them copy the entire URL from the address bar and send it back to you.")
         ui.markdown("5. Paste the URL into the input below and click 'Submit'.")
         url_input = ui.input(label="Redirected URL").classes('w-full')
-        ui.button("Submit", on_click=submit_button).classes('w-full')
+        with ui.row().classes('w-full justify-center'):
+            submit_tokens_button = ui.button("Submit", on_click=submit_button).classes('w-1/4')
+            pull_steps_button = ui.button("Pull Todays Steps", on_click=lambda: test_steps_pulling(participant_id.value)).classes('w-1/4')
+            pull_steps_button.disable()
+            ui.button("Go Home", on_click=lambda: ui.navigate.to('/')).classes('w-1/4')
+
         dialog.open()
