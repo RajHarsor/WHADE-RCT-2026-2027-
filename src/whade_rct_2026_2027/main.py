@@ -1,7 +1,7 @@
 # to run for testing: python -m whade_rct_2026_2027.main
 
 from nicegui import ui
-from .pages import home, initialization, add_user
+from .pages import home, initialization, add_user, download_view_single_user_data
 
 def run() -> None:
     ui.run(title="WHADE RCT 2026-2027", dark=True, reload=True, port=8085)

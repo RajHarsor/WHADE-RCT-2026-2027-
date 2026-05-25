@@ -12,12 +12,12 @@ def menu():
                 with ui.menu().props('anchor="top end" self="top start" auto-close'):
                     ui.menu_item("View/Edit Participant Details", on_click=lambda: ui.navigate.to('/view_edit_user'))
                     ui.menu_item("Delete Participant", on_click=lambda: ui.navigate.to('/delete_user'))
-            ui.menu_item('Send Test SMS', on_click=lambda: ui.navigate.to('/send_sms'))
+            #ui.menu_item('Send Test SMS', on_click=lambda: ui.navigate.to('/send_sms'))
             with ui.menu_item('Participant Checks', auto_close=False):
                 with ui.item_section().props('side'):
                     ui.icon('keyboard_arrow_right')
                 with ui.menu().props('anchor="top end" self="top start" auto-close'):
-                    ui.menu_item("Download/View Single Participant Data", on_click=lambda: ui.navigate.to('/compliance_report'))
+                    ui.menu_item("Download/View Single Participant Data", on_click=lambda: ui.navigate.to('/single_user_data'))
                     ui.menu_item("Download Aggregate Data", on_click=lambda: ui.navigate.to('/individual_compliance_check'))
             
 
