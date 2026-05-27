@@ -756,7 +756,7 @@ class FitbitAuth:
                 "exercise_type": str(exercise_type),
                 "exercise_duration_seconds": exercise_duration_seconds,
                 "exercise_start_time": exercise_start_time,
-                "exercise_end_time": exercise_end_time,
+                "exercise_Send_time": exercise_end_time,
             })
         
         exercise_df = polars.DataFrame(results)
