@@ -12,21 +12,21 @@ def home_page():
             with ui.row().classes('w-full justify-center items-center gap-4'):
                 phase1_light = ui.icon('fiber_manual_record', size='3em').classes('text-red')
                 ui.label("Phase 1").classes('text-h6')
-            ui.button("Configure").classes('w-full')
+            ui.button("Configure", on_click=lambda: ui.navigate.to('/phase1')).classes('w-full')
         ui.icon('arrow_forward').classes('text-6xl self-center')
         # Phase 2
         with ui.card().classes('w-1/4'):
             with ui.row().classes('w-full justify-center items-center gap-4'):
                 phase2_light = ui.icon('fiber_manual_record', size='3em').classes('text-red')
                 ui.label("Phase 2").classes('text-h6')
-            ui.button("Configure").classes('w-full')
+            ui.button("Configure", on_click=lambda: ui.navigate.to('/phase2')).classes('w-full')
         ui.icon('arrow_forward').classes('text-6xl self-center')
         # Phase 3
         with ui.card().classes('w-1/4'):
             with ui.row().classes('w-full justify-center items-center gap-4'):
                 phase3_light = ui.icon('fiber_manual_record', size='3em').classes('text-red')
                 ui.label("Phase 3").classes('text-h6')
-            ui.button("Configure").classes('w-full')
+            ui.button("Configure", on_click=lambda: ui.navigate.to('/phase3')).classes('w-full')
     
     ui.timer(0, lambda: asyncio.create_task(blinking_indicator([phase1_light, phase2_light, phase3_light])), once=True)
 

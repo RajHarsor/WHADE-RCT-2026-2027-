@@ -750,13 +750,35 @@ class FitbitAuth:
                     exercise_duration_seconds = 0
             exercise_start_time = point.get("exercise", {}).get("interval", {}).get("startTime", {})
             exercise_end_time = point.get("exercise", {}).get("interval", {}).get("endTime", {})
+            exercise_avg_heart_rate = point.get("exercise", {}).get("metricsSummary", {}).get("averageHeartRateBeatsPerMinute", {})
+            exercise_active_zone_minutes = point.get("exercise", {}).get("metricsSummary", {}).get("activeZoneMinutes", {})
+            heart_rate_zone_durations = point.get("exercise", {}).get("metricsSummary", {}).get("heartRateZoneDurations", {})
+
+            def parse_seconds(value):
+                if isinstance(value, str) and value.endswith("s"):
+                    try:
+                        return float(value[:-1])
+                    except ValueError:
+                        return 0
+                return value
+
+            exercise_hr_zone_duration_lightTime_seconds = parse_seconds(heart_rate_zone_durations.get("lightTime", 0))
+            exercise_hr_zone_duration_moderateTime_seconds = parse_seconds(heart_rate_zone_durations.get("moderateTime", 0))
+            exercise_hr_zone_duration_vigorousTime_seconds = parse_seconds(heart_rate_zone_durations.get("vigorousTime", 0))
+            exercise_hr_zone_duration_peakTime_seconds = parse_seconds(heart_rate_zone_durations.get("peakTime", 0))
             results.append({
                 "date": point_date.isoformat(),
                 "exercise_recording_method": str(exercise_recording_method),
                 "exercise_type": str(exercise_type),
                 "exercise_duration_seconds": exercise_duration_seconds,
                 "exercise_start_time": exercise_start_time,
-                "exercise_Send_time": exercise_end_time,
+                "exercise_end_time": exercise_end_time,
+                "exercise_avg_heart_rate": exercise_avg_heart_rate,
+                "exercise_active_zone_minutes": exercise_active_zone_minutes,
+                "exercise_hr_zone_duration_lightTime_seconds": exercise_hr_zone_duration_lightTime_seconds,
+                "exercise_hr_zone_duration_moderateTime_seconds": exercise_hr_zone_duration_moderateTime_seconds,
+                "exercise_hr_zone_duration_vigorousTime_seconds": exercise_hr_zone_duration_vigorousTime_seconds,
+                "exercise_hr_zone_duration_peakTime_seconds": exercise_hr_zone_duration_peakTime_seconds,
             })
         
         exercise_df = polars.DataFrame(results)
