@@ -40,7 +40,9 @@ def generate_authorization_url(participant_id, phase, week_0_start_date):
             ui.notify(f"Error pulling steps: {e}", color="red")
 
     async def submit_button():
-        result = auth.save_tokens(int(participant_id.value), phase.value, week_0_start_date.value, url_input.value, flow)
+        phase_mapping = {"Phase 1": 1, "Phase 2": 2, "Phase 3": 3}
+        phase_value = phase_mapping.get(phase.value)
+        result = auth.save_tokens(int(participant_id.value), phase_value, week_0_start_date.value, url_input.value, flow)
         if result is None:
             ui.notify("Tokens saved successfully!", color="green")
             pull_steps_button.enable()
