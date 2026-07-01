@@ -18,7 +18,7 @@ def menu():
                     ui.icon('keyboard_arrow_right')
                 with ui.menu().props('anchor="top end" self="top start" auto-close'):
                     ui.menu_item("Download/View Single Participant Data", on_click=lambda: ui.navigate.to('/single_user_data'))
-                    ui.menu_item("Download Aggregate Data", on_click=lambda: ui.navigate.to('/individual_compliance_check'))
+                    ui.menu_item("Download Aggregate Data", on_click=lambda: ui.navigate.to('/download_view_aggregated_data'))
             
 
 def top_bar(page_title: str):
