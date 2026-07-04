@@ -10,6 +10,28 @@ downloader = DataDownloader()
 @ui.page('/download_view_aggregated_data')
 def download_view_aggregated_data_page():
     
+    def download_exercise_filtered_data(start_date, end_date):
+        # if start_date or end_date is not datetime format convert them
+        if isinstance(start_date, str):
+            start_date = date.fromisoformat(start_date)
+        if isinstance(end_date, str):
+            end_date = date.fromisoformat(end_date)
+        
+        try:
+            df = downloader.download_csv_from_s3("daily_exercise_data.csv")
+            
+            # convert date column to datetime format
+            df = df.with_columns(pl.col("date").str.strptime(pl.Date, format="%Y-%m-%d"))            
+            # filter the dataframe based on the start and end dates
+            filtered_df = df.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
+            
+            # download the filtered dataframe as a CSV file
+            # Convert CSV string to bytes for ui.download
+            csv_bytes = filtered_df.write_csv().encode()
+            ui.download(csv_bytes, filename=f"exercise_filtered_data_{start_date}_{end_date}.csv")
+        except Exception as e:
+            ui.notify(f"Error downloading exercise filtered data: {str(e)}")
+    
     def download_daily_filtered_data(start_date, end_date):
         # if start_date or end_date is not datetime format convert them
         if isinstance(start_date, str):
@@ -53,4 +75,4 @@ def download_view_aggregated_data_page():
     with ui.row().classes('w-full justify-center items-center mt-4'):
         ui.button("Download Daily Aggregated Data", on_click=lambda: download_daily_filtered_data(start_date_input.value, end_date_input.value)).classes('w-1/3')
         # TODO: Placeholder for exercise data download – currently not implemented
-        ui.button("Download Exercise Data", on_click=lambda: ui.notify('Exercise data download not implemented yet')).classes('w-1/3')
+        ui.button("Download Exercise Data", on_click=lambda: download_exercise_filtered_data(start_date_input.value, end_date_input.value)).classes('w-1/3')
