@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 import os
 from io import BytesIO
 
+load_dotenv()
+
 class DataDownloader:
     def __init__(self):
         load_dotenv()
