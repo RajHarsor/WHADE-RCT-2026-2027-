@@ -5,7 +5,7 @@ import os
 from io import BytesIO
 
 # Load .env from the project root
-env_path = find_dotenv()
+env_path = find_dotenv(usecwd=True)
 if env_path:
     load_dotenv(env_path)
     print(f"Loaded .env file from: {env_path}")
