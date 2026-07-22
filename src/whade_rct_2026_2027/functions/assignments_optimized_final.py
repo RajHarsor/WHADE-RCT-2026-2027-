@@ -9,13 +9,12 @@ import random
 from itertools import combinations
 import networkx as nx
 from xlsxwriter import Workbook
+import os
 
 
-def load_data(baseline_path: str, coach_path: str):
+def load_data(baseline: pl.DataFrame, coach: pl.DataFrame):
     """Load baseline and coach data."""
-    baseline_df = pl.read_csv(baseline_path)
-    coach_df = pl.read_csv(coach_path)
-    return baseline_df, coach_df
+    return baseline, coach
 
 
 def setup_randomization(baseline_df, seed):
@@ -248,9 +247,10 @@ def assign_participants(common_partners_df, max_pairs=14):
             session_counts, len(feasible_pairs))
 
 
-def main(baseline_path: str, coach_path: str, seed: int):
+
+def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     """Run the complete assignment analysis."""
-    baseline_df, coach_df = load_data(baseline_path, coach_path)
+    baseline_df, coach_df = load_data(baseline, coach)
     
     # Analyze coach availability
     coach_columns = [col for col in coach_df.columns if col != 'Initials']
@@ -311,6 +311,10 @@ def main(baseline_path: str, coach_path: str, seed: int):
             unassigned_individuals.write_excel(workbook=workbook, worksheet='Unassigned Individuals')
     
     print(f"\nExported to assignments_optimized_final.xlsx")
+    
+    # Get where the Excel file is saved
+    path = os.path.abspath('assignments_optimized_final.xlsx')
+    return path
 
 
 if __name__ == '__main__':

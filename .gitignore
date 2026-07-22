@@ -209,6 +209,7 @@ __marimo__/
 # Other
 *ipynb
 *json
+*xlsx
 
 /src/whade_rct_2026_2027/testing_functions
 .DS_Store
