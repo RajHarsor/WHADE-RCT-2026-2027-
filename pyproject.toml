@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "whade-rct-2026-2027"
-version = "0.6.6"
+version = "0.6.7"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,6 +22,7 @@ dependencies = [
     "scipy>=1.17.1",
     "xlsxwriter>=3.2.9",
     "botocore[crt]>=1.43.6",
+    "networkx>=3.6.1",
 ]
 
 [project.scripts]
