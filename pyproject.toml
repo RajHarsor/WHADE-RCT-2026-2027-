@@ -20,6 +20,8 @@ dependencies = [
     "matplotlib>=3.10.9",
     "polars>=1.40.1",
     "scipy>=1.17.1",
+    "xlsxwriter>=3.2.9",
+    "botocore[crt]>=1.43.6",
 ]
 
 [project.scripts]

@@ -6,6 +6,7 @@ from ..functions.data_download import *
 import polars as pl
 
 downloader = DataDownloader()
+downloader.verify_credentials() 
 
 @ui.page('/download_view_aggregated_data')
 def download_view_aggregated_data_page():
@@ -18,7 +19,13 @@ def download_view_aggregated_data_page():
             end_date = date.fromisoformat(end_date)
         
         try:
+            #downloader.verify_credentials()
             df = downloader.download_csv_from_s3("daily_exercise_data.csv")
+            
+            # Check if download failed
+            if df is None:
+                ui.notify("Failed to download data from S3. Please check your AWS credentials and re-authenticate if needed.")
+                return
             
             # convert date column to datetime format
             df = df.with_columns(pl.col("date").str.strptime(pl.Date, format="%Y-%m-%d"))            
@@ -41,6 +48,11 @@ def download_view_aggregated_data_page():
         
         try:
             df = downloader.download_csv_from_s3("daily_fitbit_data.csv")
+            
+            # Check if download failed
+            if df is None:
+                ui.notify("Failed to download data from S3. Please check your AWS credentials and re-authenticate if needed.")
+                return
             
             # convert date column to datetime format
             df = df.with_columns(pl.col("date").str.strptime(pl.Date, format="%Y-%m-%d"))            

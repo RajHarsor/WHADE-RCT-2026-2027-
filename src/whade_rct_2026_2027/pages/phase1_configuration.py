@@ -5,6 +5,7 @@ import polars as pl
 import json
 from io import BytesIO
 from ..functions.config_save import ConfigSaver
+from ..functions.assignments_optimized_final import *
 
 config_saver = ConfigSaver()
 
@@ -41,7 +42,7 @@ def phase1_configuration_page():
             ui.notify("Please fill in all fields", color="red")
             return
         
-        # Save the configuration to a JSON file (or you can choose another format)
+        # Save the configuration to a JSON file
         config_data = {
             "seed": seed,
             "start_date": start_date,
