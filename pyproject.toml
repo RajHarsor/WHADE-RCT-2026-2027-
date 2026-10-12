@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-whade-rct-2026-2027 = "whade_rct_2026_2027.main:run"
+whade-rct = "whade_rct_2026_2027.main:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/whade_rct_2026_2027"]
