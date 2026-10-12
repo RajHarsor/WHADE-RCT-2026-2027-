@@ -202,6 +202,19 @@ def phase1_configuration_page():
                 ui.notify('Randomization output not found in S3.', color='red')
         except Exception as e:
             ui.notify(f'Error downloading randomization output: {e}', color='red')
+    
+    def delete_phase1_config_popup():
+        with ui.dialog() as dialog, ui.card():
+            ui.label('Are you sure you want to delete the current Phase 1 configuration? This action cannot be undone.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
+            with ui.row().classes('w-full justify-center gap-2'):
+                ui.button('Cancel', on_click=dialog.close)
+                ui.button(
+                    'Delete',
+                    color='red',
+                    on_click=lambda: config_saver.delete_phase_config('phase1', 'assignments_randomized_initial.xlsx') & config_saver.delete_phase_config('phase1', 'phase1_configuration.json') & config_saver.delete_phase_config('phase1', 'coach_availability.csv') & config_saver.delete_phase_config('phase1', 'baseline_data.csv') & dialog.close() & ui.notify('Phase 1 configuration deleted successfully.', color='green')
+                )
+
+        dialog.open()
 
 #=================================================================================#
     top_bar.top_bar('Phase 1 Configuration')
@@ -290,6 +303,14 @@ def phase1_configuration_page():
             
             download_randomization_output_button.disable()
             
+            delete_current_config_button = ui.button(
+                'Delete Current Configuration',
+                on_click=lambda: delete_phase1_config_popup(),
+                color='red'
+            ).classes('w-full mt-1')
+            
+            delete_current_config_button.disable()
+            
     
 
     # Run validation whenever a normal form field changes.
@@ -328,16 +349,17 @@ def phase1_configuration_page():
         if config_data:
             config = json.loads(config_data)
 
-            seed_box.set_value(config['seed'])
-            start_date_input.set_value(config['start_date'])
-            num_participants_input.set_value(config['num_participants'])
+            seed_box.set_value(config['seed']).disable()
+            start_date_input.set_value(config['start_date']).disable()
+            num_participants_input.set_value(config['num_participants']).disable()
             num_participants_partner_input.set_value(
                 config['num_participants_partner']
-            )
+            ).disable()
 
             generate_seed_button.disable()
             save_config_button.disable()
-            run_randomization_button.enable()
+            run_randomization_button.disable()
+            delete_current_config_button.enable()
     
     randomization_output_exists = config_saver.check_if_phase_config_exists(
         'phase1',

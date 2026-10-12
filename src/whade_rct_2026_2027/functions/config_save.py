@@ -102,3 +102,16 @@ class ConfigSaver:
         except Exception as e:
             print(f'Error retrieving configuration from S3: {e}')
             return None
+    
+    def delete_phase_config(self, folder, filename):
+        try:
+            self.s3.delete_object(
+                Bucket=self.s3_bucket_name,
+                Key=f'{folder}/{filename}',
+            )
+            print(f'Deleted configuration for {folder} from S3.')
+            return True
+
+        except Exception as e:
+            print(f'Error deleting configuration for {folder}/{filename} from S3: {e}')
+            return False
