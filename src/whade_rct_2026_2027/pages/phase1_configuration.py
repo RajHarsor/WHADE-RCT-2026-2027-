@@ -310,66 +310,78 @@ def phase1_configuration_page():
             ).classes('w-full mt-1')
             
             delete_current_config_button.disable()
-            
+                    
     
 
-    # Run validation whenever a normal form field changes.
-    seed_box.on('update:model-value', lambda _: validate_inputs())
-    start_date_input.on('update:model-value', lambda _: validate_inputs())
-    num_participants_input.on('update:model-value', lambda _: validate_inputs())
-    num_participants_partner_input.on(
-        'update:model-value',
-        lambda _: validate_inputs(),
-    )
-
-    # Load existing saved configuration, if all expected S3 files exist.
-    config_exists = (
-        config_saver.check_if_phase_config_exists(
-            'phase1',
-            'phase1_configuration.json',
-        )
-        and config_saver.check_if_phase_config_exists(
-            'phase1',
-            'coach_availability.csv',
-        )
-        and config_saver.check_if_phase_config_exists(
-            'phase1',
-            'baseline_data.csv',
-        )
-    )
-
-    if config_exists:
-        ui.notify('Existing configuration found for Phase 1.', color='blue')
-
-        config_data = config_saver.get_config_from_s3(
-            'phase1',
-            'phase1_configuration.json',
+        # Run validation whenever a normal form field changes.
+        seed_box.on('update:model-value', lambda _: validate_inputs())
+        start_date_input.on('update:model-value', lambda _: validate_inputs())
+        num_participants_input.on('update:model-value', lambda _: validate_inputs())
+        num_participants_partner_input.on(
+            'update:model-value',
+            lambda _: validate_inputs(),
         )
 
-        if config_data:
-            config = json.loads(config_data)
+        # Load existing saved configuration, if all expected S3 files exist.
+        config_exists = (
+            config_saver.check_if_phase_config_exists(
+                'phase1',
+                'phase1_configuration.json',
+            )
+            and config_saver.check_if_phase_config_exists(
+                'phase1',
+                'coach_availability.csv',
+            )
+            and config_saver.check_if_phase_config_exists(
+                'phase1',
+                'baseline_data.csv',
+            )
+        )
 
-            seed_box.set_value(config['seed']).disable()
-            start_date_input.set_value(config['start_date']).disable()
-            num_participants_input.set_value(config['num_participants']).disable()
-            num_participants_partner_input.set_value(
-                config['num_participants_partner']
-            ).disable()
+        if config_exists:
+            ui.notify('Existing configuration found for Phase 1.', color='blue')
 
-            generate_seed_button.disable()
-            save_config_button.disable()
+            config_data = config_saver.get_config_from_s3(
+                'phase1',
+                'phase1_configuration.json',
+            )
+
+            if config_data:
+                config = json.loads(config_data)
+
+                seed_box.set_value(config['seed']).disable()
+                start_date_input.set_value(config['start_date']).disable()
+                num_participants_input.set_value(config['num_participants']).disable()
+                num_participants_partner_input.set_value(
+                    config['num_participants_partner']
+                ).disable()
+
+                generate_seed_button.disable()
+                save_config_button.disable()
+                run_randomization_button.disable()
+                delete_current_config_button.enable()
+        
+        randomization_output_exists = config_saver.check_if_phase_config_exists(
+            'phase1',
+            'assignments_randomized_initial.xlsx',
+        )
+        
+        if randomization_output_exists:
+            ui.notify('Randomization output found for Phase 1.', color='blue')
+            download_randomization_output_button.enable()
             run_randomization_button.disable()
-            delete_current_config_button.enable()
-    
-    randomization_output_exists = config_saver.check_if_phase_config_exists(
-        'phase1',
-        'assignments_randomized_initial.xlsx',
-    )
-    
-    if randomization_output_exists:
-        ui.notify('Randomization output found for Phase 1.', color='blue')
-        download_randomization_output_button.enable()
-        run_randomization_button.disable()
 
-    # The button remains disabled until both CSVs are uploaded in this session.
-    validate_inputs()
+        # The button remains disabled until both CSVs are uploaded in this session.
+        validate_inputs()
+    
+        with ui.column().classes('w-2/3 outline outline-cyan-500 outline-offset-10 rounded-lg'):
+            with ui.tabs().classes('w-full') as tabs:
+                randomization_configuration_final = ui.tab('Randomization Editor').classes('w-full')
+                rerandomization_module = ui.tab('Rerandomization Module').classes('w-full')
+            with ui.tab_panels(tabs, value=randomization_configuration_final).classes('w-full'):
+                if not config_exists:
+                    with ui.tab_panel(randomization_configuration_final).classes('w-full'):
+                        ui.label('A valid configuration must be saved before accessing the Randomization Editor.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
+                    
+                    with ui.tab_panel(rerandomization_module).classes('w-full'):
+                        ui.label('A valid configuration must be saved before accessing the Rerandomization Module.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
