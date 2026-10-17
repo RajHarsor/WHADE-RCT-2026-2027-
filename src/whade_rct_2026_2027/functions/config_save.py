@@ -86,9 +86,13 @@ class ConfigSaver:
                 Bucket=self.s3_bucket_name,
                 Key=f'{folder}/{filename}',
             )
+            print(f'Configuration for {folder}/{filename} exists in S3.')
             return True
 
         except self.s3.exceptions.ClientError:
+            return False
+        except self.s3.exceptions.ClientError as e:
+            print(f'Configuration for {folder}/{filename} does not exist in S3: {e}')
             return False
 
     def get_config_from_s3(self, folder, filename):

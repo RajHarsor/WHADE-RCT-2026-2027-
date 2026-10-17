@@ -21,6 +21,8 @@ def phase1_configuration_page():
     page_state = {
         'baseline_df': None,
         'coach_availability_df': None,
+        'baseline_uploaded': False,
+        'coach_availability_uploaded': False,
     }
 
     def validate_baseline_csv(df):
@@ -43,8 +45,20 @@ def phase1_configuration_page():
         has_start_date = start_date_input.value not in (None, '')
         has_individual_count = num_participants_input.value not in (None, '')
         has_partner_count = num_participants_partner_input.value not in (None, '')
-        has_baseline_csv = page_state['baseline_df'] is not None
-        has_coach_csv = page_state['coach_availability_df'] is not None
+        has_baseline_csv = page_state['baseline_uploaded'] or (
+            config_saver.check_if_phase_config_exists(
+                'phase1',
+                'baseline_data.csv',
+            )
+        )
+        has_coach_csv = page_state['coach_availability_uploaded'] or (
+            config_saver.check_if_phase_config_exists(
+                'phase1',
+                'coach_availability.csv',
+            )
+        )
+        page_state['baseline_uploaded'] = has_baseline_csv
+        page_state['coach_availability_uploaded'] = has_coach_csv
 
         is_valid = (
             has_seed
@@ -83,6 +97,7 @@ def phase1_configuration_page():
         try:
             uploaded_bytes = await event.file.read()
             page_state['baseline_df'] = pl.read_csv(BytesIO(uploaded_bytes))
+            page_state['baseline_uploaded'] = True
 
             ui.notify(
                 f'Baseline CSV uploaded: {event.file.name}',
@@ -92,6 +107,7 @@ def phase1_configuration_page():
 
         except Exception as e:
             page_state['baseline_df'] = None
+            page_state['baseline_uploaded'] = False
             ui.notify(f'Error reading baseline CSV: {e}', color='red')
             validate_inputs()
 
@@ -101,6 +117,7 @@ def phase1_configuration_page():
             page_state['coach_availability_df'] = pl.read_csv(
                 BytesIO(uploaded_bytes)
             )
+            page_state['coach_availability_uploaded'] = True
 
             ui.notify(
                 f'Coach availability CSV uploaded: {event.file.name}',
@@ -110,6 +127,7 @@ def phase1_configuration_page():
 
         except Exception as e:
             page_state['coach_availability_df'] = None
+            page_state['coach_availability_uploaded'] = False
             ui.notify(
                 f'Error reading coach availability CSV: {e}',
                 color='red',
@@ -161,8 +179,17 @@ def phase1_configuration_page():
                 'baseline_data.csv',
                 'phase1',
             )
+            config_saver.delete_phase_config(
+                'phase1',
+                'assignments_randomized_initial.xlsx',
+            )
 
+            page_state['baseline_uploaded'] = True
+            page_state['coach_availability_uploaded'] = True
             ui.notify('Configuration saved successfully!', color='green')
+            run_randomization_button.enable()
+            save_config_button.disable()
+            validate_inputs()
 
         except Exception as e:
             ui.notify(f'Error saving configuration: {e}', color='red')
@@ -185,6 +212,8 @@ def phase1_configuration_page():
             #ui.notify('Randomization completed successfully!', color='green')
             # save to s3
             config_saver.save_config_to_s3(path_to_output, 'assignments_randomized_initial.xlsx', 'phase1')
+            download_randomization_output_button.enable()
+            run_randomization_button.disable()
             ui.notify('Randomization output saved to S3 successfully!', color='green')
             
 
@@ -204,6 +233,18 @@ def phase1_configuration_page():
             ui.notify(f'Error downloading randomization output: {e}', color='red')
     
     def delete_phase1_config_popup():
+        def delete_phase1_configuration():
+            for filename in (
+                'assignments_randomized_initial.xlsx',
+                'phase1_configuration.json',
+                'coach_availability.csv',
+                'baseline_data.csv',
+            ):
+                config_saver.delete_phase_config('phase1', filename)
+            dialog.close()
+            ui.notify('Phase 1 configuration deleted successfully.', color='green')
+            ui.navigate.to('/phase1')
+
         with ui.dialog() as dialog, ui.card():
             ui.label('Are you sure you want to delete the current Phase 1 configuration? This action cannot be undone.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
             with ui.row().classes('w-full justify-center gap-2'):
@@ -211,7 +252,7 @@ def phase1_configuration_page():
                 ui.button(
                     'Delete',
                     color='red',
-                    on_click=lambda: config_saver.delete_phase_config('phase1', 'assignments_randomized_initial.xlsx') & config_saver.delete_phase_config('phase1', 'phase1_configuration.json') & config_saver.delete_phase_config('phase1', 'coach_availability.csv') & config_saver.delete_phase_config('phase1', 'baseline_data.csv') & dialog.close() & ui.notify('Phase 1 configuration deleted successfully.', color='green')
+                    on_click=delete_phase1_configuration,
                 )
 
         dialog.open()
@@ -297,11 +338,18 @@ def phase1_configuration_page():
             run_randomization_button.disable()
             
             download_randomization_output_button = ui.button(
-                'Download Randomization Output',
+                'Download Raw Randomization Output',
                 on_click=lambda: download_randomization_output(),
             ).classes('w-full mt-1')
             
             download_randomization_output_button.disable()
+            
+            download_final_randomization_output_button = ui.button(
+                'Download Final Randomization Output',
+                on_click=lambda: downloader.download_final_randomization_output(),
+            ).classes('w-full mt-1')
+            
+            download_final_randomization_output_button.disable()
             
             delete_current_config_button = ui.button(
                 'Delete Current Configuration',
@@ -322,25 +370,38 @@ def phase1_configuration_page():
             lambda _: validate_inputs(),
         )
 
-        # Load existing saved configuration, if all expected S3 files exist.
-        config_exists = (
-            config_saver.check_if_phase_config_exists(
-                'phase1',
-                'phase1_configuration.json',
-            )
-            and config_saver.check_if_phase_config_exists(
-                'phase1',
-                'coach_availability.csv',
-            )
-            and config_saver.check_if_phase_config_exists(
-                'phase1',
-                'baseline_data.csv',
-            )
+        # Load existing saved configuration and uploads from S3.
+        config_file_exists = config_saver.check_if_phase_config_exists(
+            'phase1',
+            'phase1_configuration.json',
         )
+        coach_file_exists = config_saver.check_if_phase_config_exists(
+            'phase1',
+            'coach_availability.csv',
+        )
+        baseline_file_exists = config_saver.check_if_phase_config_exists(
+            'phase1',
+            'baseline_data.csv',
+        )
+        config_exists = (
+            config_file_exists
+            and coach_file_exists
+            and baseline_file_exists
+        )
+        page_state['baseline_uploaded'] = baseline_file_exists
+        page_state['coach_availability_uploaded'] = coach_file_exists
 
         if config_exists:
             ui.notify('Existing configuration found for Phase 1.', color='blue')
 
+            page_state['baseline_df'] = downloader.download_csv_from_s3(
+                'baseline_data.csv',
+                'phase1',
+            )
+            page_state['coach_availability_df'] = downloader.download_csv_from_s3(
+                'coach_availability.csv',
+                'phase1',
+            )
             config_data = config_saver.get_config_from_s3(
                 'phase1',
                 'phase1_configuration.json',
@@ -358,7 +419,7 @@ def phase1_configuration_page():
 
                 generate_seed_button.disable()
                 save_config_button.disable()
-                run_randomization_button.disable()
+                #run_randomization_button.enable()
                 delete_current_config_button.enable()
         
         randomization_output_exists = config_saver.check_if_phase_config_exists(
@@ -370,18 +431,38 @@ def phase1_configuration_page():
             ui.notify('Randomization output found for Phase 1.', color='blue')
             download_randomization_output_button.enable()
             run_randomization_button.disable()
+        else:
+            ui.notify('No randomization output found for Phase 1.', color='red')
+            download_randomization_output_button.disable()
+            if config_exists:
+                run_randomization_button.enable()
+            else:
+                run_randomization_button.disable()
 
         # The button remains disabled until both CSVs are uploaded in this session.
         validate_inputs()
     
         with ui.column().classes('w-2/3 outline outline-cyan-500 outline-offset-10 rounded-lg'):
             with ui.tabs().classes('w-full') as tabs:
-                randomization_configuration_final = ui.tab('Randomization Editor').classes('w-full')
+                randomization_configuration_final = ui.tab('Configuration Editor').classes('w-full')
                 rerandomization_module = ui.tab('Rerandomization Module').classes('w-full')
             with ui.tab_panels(tabs, value=randomization_configuration_final).classes('w-full'):
-                if not config_exists:
+                if not randomization_output_exists:
                     with ui.tab_panel(randomization_configuration_final).classes('w-full'):
-                        ui.label('A valid configuration must be saved before accessing the Randomization Editor.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
+                        ui.label('A valid configuration must be saved before accessing the Configuration Editor.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
                     
                     with ui.tab_panel(rerandomization_module).classes('w-full'):
                         ui.label('A valid configuration must be saved before accessing the Rerandomization Module.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
+                else:
+                    
+                    # randomization configuration editor
+                    with ui.tab_panel(randomization_configuration_final).classes('w-full'):
+                        with ui.tabs().classes('w-full') as config_tabs:
+                            individual_assignments_tab = ui.tab('Individual Assignments').classes('w-full')
+                            partner_assignments_tab = ui.tab('Partner Assignments').classes('w-full')
+                        with ui.tab_panels(config_tabs, value=individual_assignments_tab).classes('w-full'):
+                            with ui.tab_panel(individual_assignments_tab).classes('w-full'):
+                                label = ui.label('Assigned Individuals').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                                ui.label(text='Unassigned Individuals').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                            with ui.tab_panel(partner_assignments_tab).classes('w-full'):
+                                label = ui.label('Partner Assignments Configuration Editor').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
