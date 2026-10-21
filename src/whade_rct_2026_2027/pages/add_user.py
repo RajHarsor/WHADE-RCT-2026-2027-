@@ -1,3 +1,4 @@
+from nicegui.elements.input import Input
 from nicegui import ui
 from ..components import top_bar
 from ..functions.fitbit_functions import *
@@ -12,6 +13,8 @@ def add_user_page():
     with ui.column().classes('w-full justify-center items-center'):
         participant_id = ui.input(label="Participant ID", validation={'Must be an integer': lambda x: x.isdigit()}).classes('w-full').props('clearable')
         phase = ui.select(label="Phase", options=["Phase 1", "Phase 2", "Phase 3"]).classes('w-full').props('clearable')
+        phone_number = ui.input(label='Phone Number', placeholder='e.g., +1234567890', validation={'Must be a 11 digit number in international format starting with + (e.g., +12345678901)': lambda value: re.match(r'^\+\d{11}$', value) is not None}).classes('w-full').props('clearable')
+        survey_send_time = ui.time_input(label="Survey Send Time (Must be a 15-minute interval or else the survey will not be sent at the correct time)", placeholder="HH:MM").classes('w-full').props('clearable')
         with ui.input(label="Week 0 Start Date", validation={'Must be a valid date (YYYY-MM-DD)': lambda x: bool(re.match(r'^\d{4}-\d{2}-\d{2}$', x))}).props('clearable').classes('w-full') as date_input:
             with ui.menu().props('no-parent-event') as menu:
                 with ui.date().bind_value(date_input):
@@ -19,9 +22,9 @@ def add_user_page():
                         ui.button("Select", on_click=menu.close).props('flat')
             with date_input.add_slot('append'):
                 ui.icon('edit_calendar').on('click', menu.open).classes('cursor-pointer')
-        ui.button("Generate Authorization URL").classes('w-full').on_click(lambda: generate_authorization_url(participant_id, phase, date_input))
+        ui.button("Generate Authorization URL").classes('w-full').on_click(lambda: generate_authorization_url(participant_id, phase, phone_number, date_input, survey_send_time))
 
-def generate_authorization_url(participant_id, phase, week_0_start_date):
+def generate_authorization_url(participant_id, phase, phone_number, week_0_start_date, survey_send_time):
     auth = FitbitAuth()
     auth_url, flow = auth.generate_auth_link()
     
@@ -42,7 +45,7 @@ def generate_authorization_url(participant_id, phase, week_0_start_date):
     async def submit_button():
         phase_mapping = {"Phase 1": 1, "Phase 2": 2, "Phase 3": 3}
         phase_value = phase_mapping.get(phase.value)
-        result = auth.save_tokens(int(participant_id.value), phase_value, week_0_start_date.value, url_input.value, flow)
+        result = auth.save_tokens(int(participant_id.value), phase_value,  week_0_start_date.value, phone_number.value, survey_send_time.value, url_input.value, flow)
         if result is None:
             ui.notify("Tokens saved successfully!", color="green")
             pull_steps_button.enable()

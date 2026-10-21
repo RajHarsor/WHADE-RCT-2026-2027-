@@ -60,7 +60,7 @@ class FitbitAuth:
             raise e
         return auth_url, flow
     
-    def save_tokens(self, participant_id, phase, week_0_start_date, redirect_url, flow):
+    def save_tokens(self, participant_id, phase, week_0_start_date, phone_number, survey_send_time, redirect_url, flow):
         try:
             flow.fetch_token(authorization_response=redirect_url)
             creds = flow.credentials
@@ -88,7 +88,9 @@ class FitbitAuth:
                 Item={
                     'participant_id': participant_id,
                     'phase': phase,
+                    'phone_number': phone_number,
                     'week_0_start_date': week_0_start_date,
+                    'survey_send_time': survey_send_time,
                     'token': token,
                     'refresh_token': refresh_token,
                     'token_uri': token_uri,
