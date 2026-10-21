@@ -2,6 +2,7 @@ from datetime import date
 from io import BytesIO
 import json
 import random
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import polars as pl
 from nicegui import ui
@@ -24,6 +25,8 @@ def phase1_configuration_page():
         'baseline_uploaded': False,
         'coach_availability_uploaded': False,
     }
+    table_individuals_unassigned = None
+    table_partners_unassigned = None
 
     def validate_baseline_csv(df):
         # load the csv to check the number of rows and check that it equals individual participants + partner participants
@@ -183,6 +186,12 @@ def phase1_configuration_page():
                 'phase1',
                 'assignments_randomized_initial.xlsx',
             )
+            for filename in (
+                'individual_assignments_final.csv',
+                'partner_assignments_final.csv',
+            ):
+                config_saver.delete_phase_config('phase1', filename)
+            download_final_randomization_output_button.disable()
 
             page_state['baseline_uploaded'] = True
             page_state['coach_availability_uploaded'] = True
@@ -214,7 +223,7 @@ def phase1_configuration_page():
             config_saver.save_config_to_s3(path_to_output, 'assignments_randomized_initial.xlsx', 'phase1')
             download_randomization_output_button.enable()
             run_randomization_button.disable()
-            ui.notify('Randomization output saved to S3 successfully!', color='green')
+            ui.notify('Randomization output saved to S3 successfully! Please refresh the page to see the updated information.', color='green')
             
 
         except Exception as e:
@@ -231,6 +240,46 @@ def phase1_configuration_page():
                 ui.notify('Randomization output not found in S3.', color='red')
         except Exception as e:
             ui.notify(f'Error downloading randomization output: {e}', color='red')
+
+    def download_final_randomization_output():
+        final_output_filenames = (
+            'individual_assignments_final.csv',
+            'partner_assignments_final.csv',
+        )
+        downloaded_filenames = []
+
+        try:
+            output_files = {}
+            for filename in final_output_filenames:
+                output_df = downloader.download_csv_from_s3(filename, 'phase1')
+                if output_df is not None:
+                    output_files[filename] = output_df.write_csv()
+                    downloaded_filenames.append(filename)
+
+            if downloaded_filenames:
+                zip_buffer = BytesIO()
+                with ZipFile(zip_buffer, 'w', ZIP_DEFLATED) as archive:
+                    for filename, content in output_files.items():
+                        archive.writestr(filename, content)
+                ui.download(
+                    zip_buffer.getvalue(),
+                    filename='final_randomization_outputs.zip',
+                )
+                ui.notify(
+                    'Final randomization outputs downloaded successfully!',
+                    color='green',
+                )
+            else:
+                download_final_randomization_output_button.disable()
+                ui.notify(
+                    'No final randomization output found in S3.',
+                    color='red',
+                )
+        except Exception as e:
+            ui.notify(
+                f'Error downloading final randomization output: {e}',
+                color='red',
+            )
     
     def delete_phase1_config_popup():
         def delete_phase1_configuration():
@@ -239,6 +288,8 @@ def phase1_configuration_page():
                 'phase1_configuration.json',
                 'coach_availability.csv',
                 'baseline_data.csv',
+                'individual_assignments_final.csv',
+                'partner_assignments_final.csv',
             ):
                 config_saver.delete_phase_config('phase1', filename)
             dialog.close()
@@ -256,6 +307,131 @@ def phase1_configuration_page():
                 )
 
         dialog.open()
+
+    def _handle_unique_values_for_tables():
+        coach_availability_df = downloader.download_csv_from_s3('coach_availability.csv', 'phase1')
+        coach_names = coach_availability_df['Initials'].unique().to_list()
+        possible_availability_slots = coach_availability_df.columns[1:]
+
+        randomization_data_bytes = downloader.get_xlsx_from_s3('assignments_randomized_initial.xlsx', 'phase1')
+        if randomization_data_bytes:
+            sheets = pl.read_excel(BytesIO(randomization_data_bytes), sheet_id=0)
+            df_individuals_assigned = sheets['Individual Assignments']
+            df_individuals_unassigned = sheets.get('Unassigned Individuals')
+            df_partners_assigned = sheets['Partner Assignments']
+            df_partners_unassigned = sheets.get('Unassigned Pairs')
+
+            # Combine IDs from assigned and unassigned rows so reassignment can use
+            # every participant as a dropdown option.
+            individual_id_columns = [df_individuals_assigned['individual_id']]
+            if df_individuals_unassigned is not None:
+                individual_id_columns.append(df_individuals_unassigned['individual_id'])
+            all_individual_ids = pl.concat(individual_id_columns).unique().to_list()
+
+            partner_id_columns = [
+                df_partners_assigned.select('partner_1').to_series(),
+                df_partners_assigned.select('partner_2').to_series(),
+            ]
+            if df_partners_unassigned is not None:
+                partner_id_columns.extend([
+                    df_partners_unassigned.select('partner_1').to_series(),
+                    df_partners_unassigned.select('partner_2').to_series(),
+                ])
+            all_partner_ids = pl.concat(partner_id_columns).unique().to_list()
+
+            GRID_SELECT_OPTIONS = {
+                'assigned_coach': coach_names,
+                'time_slot': possible_availability_slots,
+                'individual_id': all_individual_ids,
+                'partner_1': all_partner_ids,
+                'partner_2': all_partner_ids,
+            }
+            return GRID_SELECT_OPTIONS
+
+    def editable_dropdown_grid(df, select_options):
+        column_defs = [
+            {
+                'field': column,
+                'editable': column in select_options,
+                **(
+                    {
+                        'cellEditor': 'agSelectCellEditor',
+                        'cellEditorParams': {
+                            'values': select_options[column],
+                        },
+                    }
+                    if column in select_options
+                    else {}
+                ),
+            }
+            for column in df.columns
+        ]
+        return ui.aggrid.from_polars(
+            df,
+            options={'columnDefs': column_defs},
+        ).classes('w-full')
+
+    def add_manual_assignment_columns(df):
+        columns_to_add = [
+            pl.lit(None, dtype=pl.String).alias('assigned_coach'),
+            pl.lit(None, dtype=pl.String).alias('time_slot'),
+        ]
+        return df.with_columns(
+            column
+            for column in columns_to_add
+            if column.meta.output_name() not in df.columns
+        )
+
+    def load_final_assignment_csv(filenames, rename_mapping):
+        for filename in filenames:
+            df = downloader.download_csv_from_s3(filename, 'phase1')
+            if df is not None:
+                return df.rename(rename_mapping)
+        return None
+
+    async def save_individual_assignments():
+        try:
+            individual_rows = await table_individuals_assigned.get_client_data()
+            if not individual_assignments_final_loaded and table_individuals_unassigned is not None:
+                individual_rows += await table_individuals_unassigned.get_client_data()
+            individual_assignments = (
+                pl.DataFrame(individual_rows)
+                .select(
+                    pl.col('individual_id').alias('ID'),
+                    pl.col('time_slot'),
+                    pl.col('assigned_coach').alias('coach'),
+                )
+            )
+            config_saver.save_config_to_s3(
+                individual_assignments,
+                'individual_assignments_final.csv',
+                'phase1',
+            )
+            download_final_randomization_output_button.enable()
+            ui.notify('Individual assignments saved to S3.', color='green')
+        except Exception as e:
+            ui.notify(f'Error saving individual assignments: {e}', color='red')
+
+    async def save_partner_assignments():
+        try:
+            partner_rows = await table_partners_assigned.get_client_data()
+            if not partner_assignments_final_loaded and table_partners_unassigned is not None:
+                partner_rows += await table_partners_unassigned.get_client_data()
+            partner_assignments = pl.DataFrame(partner_rows).select(
+                'partner_1',
+                'partner_2',
+                'time_slot',
+                pl.col('assigned_coach').alias('coach'),
+            )
+            config_saver.save_config_to_s3(
+                partner_assignments,
+                'partner_assignments_final.csv',
+                'phase1',
+            )
+            download_final_randomization_output_button.enable()
+            ui.notify('Partner assignments saved to S3.', color='green')
+        except Exception as e:
+            ui.notify(f'Error saving partner assignments: {e}', color='red')
 
 #=================================================================================#
     top_bar.top_bar('Phase 1 Configuration')
@@ -346,7 +522,7 @@ def phase1_configuration_page():
             
             download_final_randomization_output_button = ui.button(
                 'Download Final Randomization Output',
-                on_click=lambda: downloader.download_final_randomization_output(),
+                on_click=download_final_randomization_output,
             ).classes('w-full mt-1')
             
             download_final_randomization_output_button.disable()
@@ -426,7 +602,18 @@ def phase1_configuration_page():
             'phase1',
             'assignments_randomized_initial.xlsx',
         )
-        
+        final_output_exists = any(
+            config_saver.check_if_phase_config_exists('phase1', filename)
+            for filename in (
+                'individual_assignments_final.csv',
+                'partner_assignments_final.csv',
+            )
+        )
+        if final_output_exists:
+            download_final_randomization_output_button.enable()
+        else:
+            download_final_randomization_output_button.disable()
+
         if randomization_output_exists:
             ui.notify('Randomization output found for Phase 1.', color='blue')
             download_randomization_output_button.enable()
@@ -454,7 +641,25 @@ def phase1_configuration_page():
                     with ui.tab_panel(rerandomization_module).classes('w-full'):
                         ui.label('A valid configuration must be saved before accessing the Rerandomization Module.').classes('text-red-600 font-bold w-full justify-center items-center text-center')
                 else:
+                    # get the data
+                    randomization_data_bytes = downloader.get_xlsx_from_s3('assignments_randomized_initial.xlsx', 'phase1')
+                    if randomization_data_bytes:
+                        sheets = pl.read_excel(BytesIO(randomization_data_bytes), sheet_id=0)
+                        for name, df in sheets.items():
+                            print(f"Sheet: {name}, Rows: {df.shape[0]}, Columns: {df.shape[1]}")
+                        grid_select_options = _handle_unique_values_for_tables()
+                    df_individuals_assigned = load_final_assignment_csv(
+                        ('individual_assignments_final.csv', 'individual_assignments.csv'),
+                        {'ID': 'individual_id', 'coach': 'assigned_coach'},
+                    )
+                    df_partners_assigned = load_final_assignment_csv(
+                        ('partner_assignments_final.csv', 'partner_assignments.csv'),
+                        {'coach': 'assigned_coach'},
+                    )
+                    individual_assignments_final_loaded = df_individuals_assigned is not None
+                    partner_assignments_final_loaded = df_partners_assigned is not None
                     
+
                     # randomization configuration editor
                     with ui.tab_panel(randomization_configuration_final).classes('w-full'):
                         with ui.tabs().classes('w-full') as config_tabs:
@@ -463,6 +668,29 @@ def phase1_configuration_page():
                         with ui.tab_panels(config_tabs, value=individual_assignments_tab).classes('w-full'):
                             with ui.tab_panel(individual_assignments_tab).classes('w-full'):
                                 label = ui.label('Assigned Individuals').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
-                                ui.label(text='Unassigned Individuals').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                                if df_individuals_assigned is None:
+                                    df_individuals_assigned = sheets['Individual Assignments']
+                                table_individuals_assigned = editable_dropdown_grid(df_individuals_assigned, grid_select_options)
+                                if not individual_assignments_final_loaded and 'Unassigned Individuals' in sheets:
+                                    ui.label(text='Unassigned Individuals').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                                    df_individuals_unassigned = sheets['Unassigned Individuals']
+                                    df_individuals_unassigned = add_manual_assignment_columns(df_individuals_unassigned)
+                                    table_individuals_unassigned = editable_dropdown_grid(df_individuals_unassigned, grid_select_options)
+                                save_individual_randomization = ui.button(
+                                    'Save Final Individual Randomization Output',
+                                    on_click=save_individual_assignments,
+                                ).classes('justify-center items-center w-full mt-4')
                             with ui.tab_panel(partner_assignments_tab).classes('w-full'):
-                                label = ui.label('Partner Assignments Configuration Editor').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                                label = ui.label('Assigned Partners').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                                if df_partners_assigned is None:
+                                    df_partners_assigned = sheets['Partner Assignments']
+                                table_partners_assigned = editable_dropdown_grid(df_partners_assigned, grid_select_options)
+                                if not partner_assignments_final_loaded and 'Unassigned Pairs' in sheets:
+                                    ui.label(text='Unassigned Partners').classes('text-blue-600 font-bold w-full justify-center items-center text-center')
+                                    df_partners_unassigned = sheets['Unassigned Pairs']
+                                    df_partners_unassigned = add_manual_assignment_columns(df_partners_unassigned)
+                                    table_partners_unassigned = editable_dropdown_grid(df_partners_unassigned, grid_select_options)
+                                save_partner_randomization = ui.button(
+                                    'Save Final Partner Randomization Output',
+                                    on_click=save_partner_assignments,
+                                ).classes('justify-center items-center w-full mt-4')
