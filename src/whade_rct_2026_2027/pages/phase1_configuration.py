@@ -219,14 +219,26 @@ def phase1_configuration_page():
         
         # run randomization
         try:
-            path_to_output = run_randomization_analysis(baseline_df, coach_availability_df, int(seed_box.value))
+            path_to_output, missing_participants = run_randomization_analysis(baseline_df, coach_availability_df, int(seed_box.value))
             # Let the user choose where to save the output file using ui.download
             #ui.notify('Randomization completed successfully!', color='green')
             # save to s3
             config_saver.save_config_to_s3(path_to_output, 'assignments_randomized_initial.xlsx', 'phase1')
             download_randomization_output_button.enable()
             run_randomization_button.disable()
-            ui.notify('Randomization output saved to S3 successfully! Please refresh the page to see the updated information.', color='green')
+            if missing_participants is None:
+                ui.notify(
+                    'Randomization output saved to S3, but DynamoDB could not be scanned so the randomization attribute was not updated.',
+                    color='orange',
+                )
+            elif missing_participants:
+                ui.notify(
+                    f"Randomization output saved to S3. Not in DynamoDB ({len(missing_participants)}): "
+                    f"{', '.join(map(str, sorted(missing_participants)))}",
+                    color='orange',
+                )
+            else:
+                ui.notify('Randomization output saved to S3 successfully! Please refresh the page to see the updated information.', color='green')
             
 
         except Exception as e:

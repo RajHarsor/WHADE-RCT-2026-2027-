@@ -36,6 +36,43 @@ def get_user_info(participant_id):
         print(f"Error retrieving user from database: {e}")
         return None, f"Error retrieving user from database: {e}"
 
+def get_all_participant_ids():
+    """
+    Scan the AWS DynamoDB table for every participant_id.
+
+    Returns:
+        set: Participant IDs present in the table.
+        None: If the scan failed, so callers can tell "empty" from "unknown".
+    """
+    env_vars = read_env_variables()
+
+    Session = boto3.Session(
+        aws_access_key_id=env_vars['aws_access_key_id'],
+        aws_secret_access_key=env_vars['aws_secret_access_key'],
+        region_name=env_vars['region']
+    )
+    dynamodb = Session.resource('dynamodb')
+    table = dynamodb.Table(table_name)
+
+    participant_ids = set()
+    scan_kwargs = {'ProjectionExpression': 'participant_id'}
+
+    try:
+        while True:
+            response = table.scan(**scan_kwargs)
+            participant_ids.update(
+                int(item['participant_id'])
+                for item in response.get('Items', [])
+            )
+            last_evaluated_key = response.get('LastEvaluatedKey')
+            if not last_evaluated_key:
+                break
+            scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
+        return participant_ids
+    except Exception as e:
+        print(f"Error scanning participants from database: {e}")
+        return None
+
 def update_user_info(participant_id, attribute_name, new_value):
     """
     Update user information in the AWS DynamoDB table.

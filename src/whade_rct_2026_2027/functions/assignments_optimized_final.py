@@ -11,7 +11,7 @@ import networkx as nx
 from xlsxwriter import Workbook
 import os
 
-from .participant_display import update_user_info
+from .participant_display import get_all_participant_ids, update_user_info
 
 
 # Coach CSV columns that hold capacity limits rather than time-slot availability.
@@ -21,27 +21,41 @@ COACH_LIMIT_COLUMNS = {
 }
 
 def update_participant_status(individuals_df, partner_df):
-    """Write each participant's randomization condition to DynamoDB.
+    """Set the 'randomization' attribute for participants that exist in DynamoDB.
 
-    Sets the 'randomization' attribute to 'individual' or 'partner'.
-    Returns a list of (participant_id, error_message) for failed updates.
+    Scans the table first so participants missing from DynamoDB are reported
+    instead of being silently created by update_item's upsert behaviour.
+    Returns (missing, failures); missing is None if the scan itself failed.
     """
+    existing_ids = get_all_participant_ids()
+    if existing_ids is None:
+        print("\nCould not scan DynamoDB; randomization attribute was not updated.")
+        return None, []
+
+    missing = []
     failures = []
+    updated_count = 0
     for df, condition in ((individuals_df, 'individual'), (partner_df, 'partner')):
         for participant_id in df.get_column('ID').to_list():
+            participant_id = int(participant_id)
+            if participant_id not in existing_ids:
+                missing.append(participant_id)
+                continue
             updated, message = update_user_info(participant_id, 'randomization', condition)
-            if not updated:
+            if updated:
+                updated_count += 1
+            else:
                 failures.append((participant_id, message))
 
-    total = individuals_df.height + partner_df.height
+    print(f"\nSet randomization condition for {updated_count} participants.")
+    if missing:
+        print(f"Not in DynamoDB ({len(missing)}): {', '.join(map(str, sorted(missing)))}")
     if failures:
-        print(f"\nFailed to set randomization for {len(failures)} of {total} participants:")
+        print(f"Failed to set randomization for {len(failures)} participants:")
         for participant_id, message in failures:
             print(f"  {participant_id}: {message}")
-    else:
-        print(f"\nSet randomization condition for all {total} participants.")
 
-    return failures
+    return missing, failures
 
 
 def load_data(baseline: pl.DataFrame, coach: pl.DataFrame):
@@ -447,13 +461,13 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     print(f"\nExported to assignments_optimized_final.xlsx")
     
     # Record who is in the individual condition vs the partner condition.
-    update_participant_status(individuals_df, partner_df)
+    missing_participants, _ = update_participant_status(individuals_df, partner_df)
     
     
     # Get where the Excel file is saved
     path = os.path.abspath('assignments_optimized_final.xlsx')
     
-    return path
+    return path, missing_participants
 
 
 if __name__ == '__main__':
