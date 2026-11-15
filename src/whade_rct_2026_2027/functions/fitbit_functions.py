@@ -1,6 +1,7 @@
 import time
 import requests
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
@@ -87,6 +88,8 @@ class FitbitAuth:
             table.put_item(
                 Item={
                     'participant_id': participant_id,
+                    # date added in EST
+                    'date_added': datetime.now(ZoneInfo("America/New_York")).isoformat(),
                     'phase': phase,
                     'phone_number': phone_number,
                     'week_0_start_date': week_0_start_date,

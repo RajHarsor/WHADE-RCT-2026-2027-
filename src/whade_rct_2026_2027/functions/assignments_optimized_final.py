@@ -12,9 +12,35 @@ from xlsxwriter import Workbook
 import os
 
 
+# Coach CSV columns that hold capacity limits rather than time-slot availability.
+COACH_LIMIT_COLUMNS = {
+    'number_of_individual': 'individual',
+    'number_of_dyads': 'dyad',
+}
+
+
 def load_data(baseline: pl.DataFrame, coach: pl.DataFrame):
     """Load baseline and coach data."""
     return baseline, coach
+
+
+def get_coach_time_columns(coach_df):
+    """Coach availability (time slot) columns, excluding identity and capacity columns."""
+    return [col for col in coach_df.columns if col not in ('Initials', *COACH_LIMIT_COLUMNS)]
+
+
+def get_coach_limits(coach_df):
+    """Map each coach to their max dyad/individual sessions (None means unlimited)."""
+    limits = {}
+    for row in coach_df.iter_rows(named=True):
+        caps = {}
+        for column, session_type in COACH_LIMIT_COLUMNS.items():
+            if column not in coach_df.columns:
+                caps[session_type] = None
+            else:
+                caps[session_type] = int(row.get(column) or 0)
+        limits[row['Initials']] = caps
+    return limits
 
 
 def setup_randomization(baseline_df, seed):
@@ -86,8 +112,7 @@ def calculate_discrepency_score(partner_df, common_partners_df):
 def add_available_coaches(common_partners_df, coach_df):
     """Map coach availability to time slots."""
     coach_lookup = {}
-    coach_columns = [col for col in coach_df.columns if col != 'Initials']
-    for col in coach_columns:
+    for col in get_coach_time_columns(coach_df):
         available_coaches = coach_df.filter(pl.col(col).cast(pl.Utf8) == '1').get_column('Initials').to_list()
         coach_lookup[col] = available_coaches
     
@@ -107,13 +132,17 @@ def add_available_individuals(common_partners_df, individuals_df):
     return common_partners_df.with_columns(pl.Series('available_individuals', available_individuals))
 
 
-def assign_participants(common_partners_df, max_pairs=14):
+def assign_participants(common_partners_df, coach_limits=None, max_pairs=14):
     """
     Assign partners and individuals to time slots.
     Prioritizes total assignments, then uses discrepancy score as tiebreaker.
+    Each coach is capped at their max number of dyad and individual sessions.
     """
+    coach_limits = coach_limits or {}
     slot_taken = {}
     session_counts = {}
+    dyad_counts = {}
+    individual_counts = {}
     partner_rows = []
     unassigned_pairs = []
     individual_rows = []
@@ -127,15 +156,40 @@ def assign_participants(common_partners_df, max_pairs=14):
         taken = slot_taken.setdefault(time_slot, set())
         return [c for c in coach_list if c not in taken]
     
-    def claim_coach(time_slot, coach_list):
-        remaining = available_coaches_for_slot(time_slot, coach_list)
+    def under_cap(coach, session_type):
+        cap = coach_limits.get(coach, {}).get(session_type)
+        if cap is None:
+            return True
+        used = dyad_counts.get(coach, 0) if session_type == 'dyad' else individual_counts.get(coach, 0)
+        return used < cap
+    
+    def claim_coach(time_slot, coach_list, session_type):
+        remaining = [
+            c for c in available_coaches_for_slot(time_slot, coach_list)
+            if under_cap(c, session_type)
+        ]
         if not remaining:
             return None
         # Prefer coaches with fewer sessions (load balancing)
         coach = min(remaining, key=lambda c: (session_counts.get(c, 0), c))
         slot_taken[time_slot].add(coach)
         session_counts[coach] = session_counts.get(coach, 0) + 1
+        if session_type == 'dyad':
+            dyad_counts[coach] = dyad_counts.get(coach, 0) + 1
+        else:
+            individual_counts[coach] = individual_counts.get(coach, 0) + 1
         return coach
+    
+    def unassigned_reason(candidates, session_type):
+        """Explain why no coach could be claimed for these candidate slots."""
+        listed = {c for row in candidates for c in row.get('available_coaches', [])}
+        if not listed:
+            return 'No coaches available in any viable time slot (slots lack coach coverage)'
+        at_cap = sorted(c for c in listed if not under_cap(c, session_type))
+        if len(at_cap) == len(listed):
+            return (f'Coach available but already at max number of {session_type} sessions: '
+                    f'{", ".join(at_cap)}')
+        return 'All coaches in viable slots already assigned'
     
     def sort_key(row):
         # Prioritize slots with more coach options (more flexibility)
@@ -189,20 +243,17 @@ def assign_participants(common_partners_df, max_pairs=14):
         assigned = None
         assigned_coach = None
         for row in candidates:
-            assigned_coach = claim_coach(row['time_slot'], row['available_coaches'])
+            assigned_coach = claim_coach(row['time_slot'], row['available_coaches'], 'dyad')
             if assigned_coach is not None:
                 assigned = row
                 break
         
         if assigned is None:
-            has_coach = len(candidates) > 0 and any(len(c['available_coaches']) > 0 for c in candidates)
-            reason = ('No coaches available in any viable time slot (slots lack coach coverage)'
-                      if not has_coach else 'All coaches in viable slots already assigned')
             unassigned_pairs.append({
                 'partner_1': p1, 'partner_2': p2,
                 'discrepancy_score': pair_score_lookup[pair_key],
                 'viable_time_slots': [r['time_slot'] for r in candidates],
-                'reason': reason,
+                'reason': unassigned_reason(candidates, 'dyad'),
             })
         else:
             partner_rows.append({
@@ -226,7 +277,7 @@ def assign_participants(common_partners_df, max_pairs=14):
         assigned = None
         assigned_coach = None
         for row in candidates:
-            assigned_coach = claim_coach(row['time_slot'], row['available_coaches'])
+            assigned_coach = claim_coach(row['time_slot'], row['available_coaches'], 'individual')
             if assigned_coach is not None:
                 assigned = row
                 break
@@ -235,16 +286,25 @@ def assign_participants(common_partners_df, max_pairs=14):
             unassigned_individuals.append({
                 'individual_id': iid,
                 'viable_time_slots': [r['time_slot'] for r in candidates],
-                'reason': 'No available coach in any viable time slot',
+                'reason': unassigned_reason(candidates, 'individual'),
             })
         else:
             individual_rows.append({
                 'time_slot': assigned['time_slot'], 'individual_id': iid, 'assigned_coach': assigned_coach,
             })
     
+    coach_breakdown = {
+        coach: {
+            'dyad': dyad_counts.get(coach, 0),
+            'individual': individual_counts.get(coach, 0),
+            'total': session_counts.get(coach, 0),
+        }
+        for coach in session_counts
+    }
+    
     return (pl.DataFrame(partner_rows), pl.DataFrame(individual_rows),
             pl.DataFrame(unassigned_pairs), pl.DataFrame(unassigned_individuals),
-            session_counts, len(feasible_pairs))
+            coach_breakdown, len(feasible_pairs))
 
 
 
@@ -253,9 +313,10 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     baseline_df, coach_df = load_data(baseline, coach)
     
     # Analyze coach availability
-    coach_columns = [col for col in coach_df.columns if col != 'Initials']
+    coach_columns = get_coach_time_columns(coach_df)
     total_availability = sum(coach_df.filter(pl.col(col).cast(pl.Utf8) == '1').height for col in coach_columns)
     slots_with_coach = [col for col in coach_columns if coach_df.filter(pl.col(col).cast(pl.Utf8) == '1').height > 0]
+    coach_limits = get_coach_limits(coach_df)
     
     print("=" * 60)
     print("OPTIMIZED ASSIGNMENT ANALYSIS")
@@ -272,7 +333,7 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     common_partners_df = add_available_coaches(common_partners_df, coach_df)
     common_partners_df = add_available_individuals(common_partners_df, individuals_df)
     
-    partner_assignments, individual_assignments, unassigned_pairs, unassigned_individuals, coach_counts, total_feasible = assign_participants(common_partners_df)
+    partner_assignments, individual_assignments, unassigned_pairs, unassigned_individuals, coach_counts, total_feasible = assign_participants(common_partners_df, coach_limits)
     
     print(f"\nTotal feasible pairs (with coach coverage): {total_feasible}")
     
@@ -296,8 +357,14 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     print(f"\n--- Coach Workload Distribution ---")
     if coach_counts:
         for coach in sorted(coach_counts.keys()):
-            print(f"  Coach {coach}: {coach_counts[coach]} sessions")
-        avg = sum(coach_counts.values()) / len(coach_counts) if coach_counts else 0
+            counts = coach_counts[coach]
+            caps = coach_limits.get(coach, {})
+            dyad_cap = caps.get('dyad')
+            individual_cap = caps.get('individual')
+            print(f"  Coach {coach}: {counts['total']} sessions "
+                  f"({counts['dyad']}/{dyad_cap if dyad_cap is not None else 'inf'} dyads, "
+                  f"{counts['individual']}/{individual_cap if individual_cap is not None else 'inf'} individuals)")
+        avg = sum(c['total'] for c in coach_counts.values()) / len(coach_counts)
         print(f"  Average per coach: {avg:.1f}")
     
     with Workbook('assignments_optimized_final.xlsx') as workbook:
@@ -312,8 +379,12 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     
     print(f"\nExported to assignments_optimized_final.xlsx")
     
+    # TODO: update the dynamodb table with who is in the individual condition vs in the partner condition
+    
+    
     # Get where the Excel file is saved
     path = os.path.abspath('assignments_optimized_final.xlsx')
+    
     return path
 
 
