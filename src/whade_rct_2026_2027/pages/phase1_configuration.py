@@ -12,6 +12,7 @@ from ..functions.config_save import ConfigSaver
 from ..functions.data_download import DataDownloader
 from ..functions.assignments_optimized_final import (
     build_coach_counts,
+    get_coach_time_columns,
     main as run_randomization_analysis,
 )
 
@@ -344,7 +345,7 @@ def phase1_configuration_page():
     def _handle_unique_values_for_tables():
         coach_availability_df = downloader.download_csv_from_s3('coach_availability.csv', 'phase1')
         coach_names = coach_availability_df['Initials'].unique().to_list()
-        possible_availability_slots = coach_availability_df.columns[1:]
+        possible_availability_slots = get_coach_time_columns(coach_availability_df)
 
         randomization_data_bytes = downloader.get_xlsx_from_s3('assignments_randomized_initial.xlsx', 'phase1')
         if randomization_data_bytes:
