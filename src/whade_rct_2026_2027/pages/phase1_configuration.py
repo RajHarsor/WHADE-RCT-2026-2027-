@@ -10,7 +10,10 @@ from nicegui import ui
 from ..components import top_bar
 from ..functions.config_save import ConfigSaver
 from ..functions.data_download import DataDownloader
-from ..functions.assignments_optimized_final import main as run_randomization_analysis
+from ..functions.assignments_optimized_final import (
+    build_coach_counts,
+    main as run_randomization_analysis,
+)
 
 
 config_saver = ConfigSaver()
@@ -257,6 +260,24 @@ def phase1_configuration_page():
                     downloaded_filenames.append(filename)
 
             if downloaded_filenames:
+                coach_availability_df = downloader.download_csv_from_s3(
+                    'coach_availability.csv',
+                    'phase1',
+                )
+                if coach_availability_df is not None:
+                    coach_counts = build_coach_counts(
+                        coach_availability_df,
+                        downloader.download_csv_from_s3(
+                            'partner_assignments_final.csv',
+                            'phase1',
+                        ),
+                        downloader.download_csv_from_s3(
+                            'individual_assignments_final.csv',
+                            'phase1',
+                        ),
+                    )
+                    output_files['coach_counts.csv'] = coach_counts.write_csv()
+
                 zip_buffer = BytesIO()
                 with ZipFile(zip_buffer, 'w', ZIP_DEFLATED) as archive:
                     for filename, content in output_files.items():

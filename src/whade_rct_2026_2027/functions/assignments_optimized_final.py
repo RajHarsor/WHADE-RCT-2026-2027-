@@ -43,6 +43,44 @@ def get_coach_limits(coach_df):
     return limits
 
 
+def build_coach_counts(coach_df, partner_assignments=None, individual_assignments=None):
+    """Per-coach caps plus assigned dyad/individual counts, for the Coach Counts sheet."""
+    limits = get_coach_limits(coach_df)
+
+    def count_by_coach(df):
+        if df is None or df.height == 0:
+            return {}
+        coach_column = next(
+            (name for name in ('coach', 'assigned_coach') if name in df.columns),
+            None,
+        )
+        if coach_column is None:
+            return {}
+        counts = (
+            df.filter(
+                pl.col(coach_column).is_not_null()
+                & (pl.col(coach_column).cast(pl.Utf8).str.strip_chars() != '')
+            )
+            .group_by(coach_column)
+            .len()
+        )
+        return {row[coach_column]: row['len'] for row in counts.iter_rows(named=True)}
+
+    dyad_counts = count_by_coach(partner_assignments)
+    individual_counts = count_by_coach(individual_assignments)
+
+    return pl.DataFrame([
+        {
+            'coach': coach,
+            'max_individual_sessions': limits[coach]['individual'],
+            'max_dyad_sessions': limits[coach]['dyad'],
+            'individual_sessions_assigned': individual_counts.get(coach, 0),
+            'dyad_sessions_assigned': dyad_counts.get(coach, 0),
+        }
+        for coach in sorted(limits)
+    ])
+
+
 def setup_randomization(baseline_df, seed):
     """Split participants into partner/individual groups using randomization."""
     random.seed(seed)
@@ -367,16 +405,7 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
         avg = sum(c['total'] for c in coach_counts.values()) / len(coach_counts)
         print(f"  Average per coach: {avg:.1f}")
     
-    coach_counts_df = pl.DataFrame([
-        {
-            'coach': coach,
-            'max_individual_sessions': coach_limits.get(coach, {}).get('individual'),
-            'max_dyad_sessions': coach_limits.get(coach, {}).get('dyad'),
-            'individual_sessions_assigned': coach_counts.get(coach, {}).get('individual', 0),
-            'dyad_sessions_assigned': coach_counts.get(coach, {}).get('dyad', 0),
-        }
-        for coach in sorted(coach_limits)
-    ])
+    coach_counts_df = build_coach_counts(coach_df, partner_assignments, individual_assignments)
     
     with Workbook('assignments_optimized_final.xlsx') as workbook:
         if len(partner_assignments) > 0:
