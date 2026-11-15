@@ -367,6 +367,17 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
         avg = sum(c['total'] for c in coach_counts.values()) / len(coach_counts)
         print(f"  Average per coach: {avg:.1f}")
     
+    coach_counts_df = pl.DataFrame([
+        {
+            'coach': coach,
+            'max_individual_sessions': coach_limits.get(coach, {}).get('individual'),
+            'max_dyad_sessions': coach_limits.get(coach, {}).get('dyad'),
+            'individual_sessions_assigned': coach_counts.get(coach, {}).get('individual', 0),
+            'dyad_sessions_assigned': coach_counts.get(coach, {}).get('dyad', 0),
+        }
+        for coach in sorted(coach_limits)
+    ])
+    
     with Workbook('assignments_optimized_final.xlsx') as workbook:
         if len(partner_assignments) > 0:
             partner_assignments.write_excel(workbook=workbook, worksheet='Partner Assignments')
@@ -376,6 +387,8 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
             unassigned_pairs.write_excel(workbook=workbook, worksheet='Unassigned Pairs')
         if len(unassigned_individuals) > 0:
             unassigned_individuals.write_excel(workbook=workbook, worksheet='Unassigned Individuals')
+        if len(coach_counts_df) > 0:
+            coach_counts_df.write_excel(workbook=workbook, worksheet='Coach Counts')
     
     print(f"\nExported to assignments_optimized_final.xlsx")
     
