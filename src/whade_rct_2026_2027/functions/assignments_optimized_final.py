@@ -11,12 +11,37 @@ import networkx as nx
 from xlsxwriter import Workbook
 import os
 
+from .participant_display import update_user_info
+
 
 # Coach CSV columns that hold capacity limits rather than time-slot availability.
 COACH_LIMIT_COLUMNS = {
     'number_of_individual': 'individual',
     'number_of_dyads': 'dyad',
 }
+
+def update_participant_status(individuals_df, partner_df):
+    """Write each participant's randomization condition to DynamoDB.
+
+    Sets the 'randomization' attribute to 'individual' or 'partner'.
+    Returns a list of (participant_id, error_message) for failed updates.
+    """
+    failures = []
+    for df, condition in ((individuals_df, 'individual'), (partner_df, 'partner')):
+        for participant_id in df.get_column('ID').to_list():
+            updated, message = update_user_info(participant_id, 'randomization', condition)
+            if not updated:
+                failures.append((participant_id, message))
+
+    total = individuals_df.height + partner_df.height
+    if failures:
+        print(f"\nFailed to set randomization for {len(failures)} of {total} participants:")
+        for participant_id, message in failures:
+            print(f"  {participant_id}: {message}")
+    else:
+        print(f"\nSet randomization condition for all {total} participants.")
+
+    return failures
 
 
 def load_data(baseline: pl.DataFrame, coach: pl.DataFrame):
@@ -421,7 +446,8 @@ def main(baseline: pl.DataFrame, coach: pl.DataFrame, seed: int):
     
     print(f"\nExported to assignments_optimized_final.xlsx")
     
-    # TODO: update the dynamodb table with who is in the individual condition vs in the partner condition
+    # Record who is in the individual condition vs the partner condition.
+    update_participant_status(individuals_df, partner_df)
     
     
     # Get where the Excel file is saved
